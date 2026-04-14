@@ -486,10 +486,10 @@ class RequestHandler {
 
     /**
      * Wait for system to become ready (not busy with switching/recovery)
-     * @param {number} timeoutMs - Maximum time to wait in milliseconds (default 120s, same as browser launch timeout)
+     * @param {number} timeoutMs - Maximum time to wait in milliseconds
      * @returns {Promise<boolean>} true if system becomes ready, false if timeout
      */
-    async _waitForSystemReady(timeoutMs = 120000) {
+    async _waitForSystemReady(timeoutMs = 15000) {
         if (!this.authSwitcher.isSystemBusy) {
             return true;
         }
