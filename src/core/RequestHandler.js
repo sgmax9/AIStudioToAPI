@@ -540,6 +540,21 @@ class RequestHandler {
                         this.logger.debug(`[System] onConnectionTimeout handler failed: ${e.message}`);
                     }
                 }
+                
+                // FORCE SWITCH FIX: If we wait for connection and it's still missing, this account is a "zombie".
+                // We MUST trigger an immediate account switch to recover from this deadlock.
+                this.logger.error(
+                    `❌ [Zombie Deadlock Detected] Account #${this.currentAuthIndex} has no WebSocket connection after system ready and timeout. Forcing immediate switch!`
+                );
+                
+                // Do this asynchronously so we don't block the current request from failing fast
+                this.authSwitcher.handleRequestFailureAndSwitch({
+                    message: "Zombie account detected (No WebSocket)",
+                    status: 503
+                }, null).catch(err => {
+                    this.logger.error(`[Zombie Deadlock] Force switch failed: ${err.message}`);
+                });
+
                 sendError(503, connectionMessage);
                 return false;
             }
