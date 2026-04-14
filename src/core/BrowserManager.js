@@ -641,7 +641,7 @@ class BrowserManager {
         this.logger.debug(`${logPrefix} Navigating to target page...`);
 
         await page.goto(this.targetUrl, {
-            timeout: 180000,
+            timeout: 60000, // Reduced from 180s to 60s. If page can't load in 60s, system is overloaded, fail fast.
             waitUntil: "domcontentloaded",
         });
         this.logger.debug(`${logPrefix} Page loaded.`);
