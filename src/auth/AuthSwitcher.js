@@ -96,10 +96,37 @@ class AuthSwitcher {
                 this.currentAuthIndex >= 0
                     ? this.authSource.getCanonicalIndex(this.currentAuthIndex)
                     : this.currentAuthIndex;
-            const currentIndexInArray = available.indexOf(currentCanonicalIndex);
-            const hasCurrentAccount = currentIndexInArray !== -1;
-            const startIndex = hasCurrentAccount ? currentIndexInArray : 0;
-            const originalStartAccount = hasCurrentAccount ? available[startIndex] : null;
+            
+            let currentIndexInArray = available.indexOf(currentCanonicalIndex);
+            let hasCurrentAccount = currentIndexInArray !== -1;
+            let startIndex = 0;
+            let startOffset = 0;
+            let tryCount = available.length;
+            let originalStartAccount = null;
+
+            // FIX: If the current account is lost/removed from the available pool (hasCurrentAccount === false),
+            // instead of restarting from 0 (which jumps back to #1), we try to find the next available account
+            // that is greater than the current account index to maintain the rotation order.
+            if (hasCurrentAccount) {
+                startIndex = currentIndexInArray;
+                startOffset = 1; // skip current
+                tryCount = available.length - 1;
+                originalStartAccount = available[startIndex];
+            } else if (this.currentAuthIndex >= 0) {
+                // Account is lost/expired. Let's find the next valid account index in the available array.
+                for (let i = 0; i < available.length; i++) {
+                    if (available[i] > this.currentAuthIndex) {
+                        startIndex = i;
+                        break;
+                    }
+                }
+                // We found a starting point to resume rotation.
+                // We don't skip the current 'startIndex' because it's already a *new* account.
+                startOffset = 0; 
+                tryCount = available.length; 
+                originalStartAccount = available[startIndex];
+                this.logger.info(`[Auth] Current account #${this.currentAuthIndex} is unavailable. Resuming rotation from next available account #${originalStartAccount}.`);
+            }
 
             this.logger.info("==================================================");
             this.logger.info(`🔄 [Auth] Multi-account mode: Starting intelligent account switching`);
@@ -107,7 +134,7 @@ class AuthSwitcher {
             this.logger.info(
                 `   • Available accounts (dedup by email, keeping latest index): [${available.join(", ")}]`
             );
-            if (hasCurrentAccount) {
+            if (hasCurrentAccount || this.currentAuthIndex >= 0) {
                 this.logger.info(`   • Starting from: #${originalStartAccount}`);
             } else {
                 this.logger.info(`   • No current account, will try all available accounts`);
@@ -115,10 +142,6 @@ class AuthSwitcher {
             this.logger.info("==================================================");
 
             const failedAccounts = [];
-            // If no current account (currentAuthIndex=-1), start from i=0 to try all accounts
-            // If has current account, start from i=1 to skip current and try others
-            const startOffset = hasCurrentAccount ? 1 : 0;
-            const tryCount = hasCurrentAccount ? available.length - 1 : available.length;
 
             for (let i = startOffset; i < startOffset + tryCount; i++) {
                 const tryIndex = (startIndex + i) % available.length;
