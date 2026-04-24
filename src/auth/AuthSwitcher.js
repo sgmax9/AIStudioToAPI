@@ -18,6 +18,8 @@ class AuthSwitcher {
         this.failureCount = 0;
         this.usageCount = 0;
         this.isSystemBusy = false;
+        // MEMORY ANCHOR: Remembers the last tried account even if BrowserManager resets to -1
+        this.lastKnownIndex = -1;
     }
 
     get currentAuthIndex() {
@@ -104,40 +106,49 @@ class AuthSwitcher {
             let tryCount = available.length;
             let originalStartAccount = null;
 
-            // FIX: If the current account is lost/removed from the available pool (hasCurrentAccount === false),
-            // instead of restarting from 0 (which jumps back to #1), we try to find the next available account
-            // that is greater than the current account index to maintain the rotation order.
+            // Update memory anchor if we have a valid current account
+            if (this.currentAuthIndex >= 0) {
+                this.lastKnownIndex = this.currentAuthIndex;
+            }
+
+            // FIX: If the current account is lost/removed or reset to -1 due to catastrophic failure,
+            // we rely on the memory anchor (lastKnownIndex) to continue the sequence instead of starting from #1.
             if (hasCurrentAccount) {
+                // Happy path: current account is perfectly healthy and in the pool
                 startIndex = currentIndexInArray;
                 startOffset = 1; // skip current
                 tryCount = available.length - 1;
                 originalStartAccount = available[startIndex];
-            } else if (this.currentAuthIndex >= 0) {
-                // Account is lost/expired. Let's find the next valid account index in the available array.
+            } else if (this.lastKnownIndex >= 0) {
+                // The account was dropped, OR the browser crashed and reset currentAuthIndex to -1.
+                // We use our lastKnownIndex to find the next logical successor!
+                let foundNext = false;
                 for (let i = 0; i < available.length; i++) {
-                    if (available[i] > this.currentAuthIndex) {
+                    if (available[i] > this.lastKnownIndex) {
                         startIndex = i;
+                        foundNext = true;
                         break;
                     }
                 }
-                // We found a starting point to resume rotation.
-                // We don't skip the current 'startIndex' because it's already a *new* account.
+                // If we didn't find a strictly larger one (e.g., we were at the end of the array),
+                // it naturally wraps around to index 0 because startIndex defaults to 0.
+                
                 startOffset = 0; 
                 tryCount = available.length; 
                 originalStartAccount = available[startIndex];
-                this.logger.info(`[Auth] Current account #${this.currentAuthIndex} is unavailable. Resuming rotation from next available account #${originalStartAccount}.`);
+                this.logger.info(`[Auth] Current account #${this.currentAuthIndex} is lost/invalid. Using Memory Anchor #${this.lastKnownIndex} to resume rotation at #${originalStartAccount}.`);
             }
 
             this.logger.info("==================================================");
             this.logger.info(`🔄 [Auth] Multi-account mode: Starting intelligent account switching`);
-            this.logger.info(`   • Current account: #${this.currentAuthIndex}`);
+            this.logger.info(`   • Current account: #${this.currentAuthIndex} (Anchor: #${this.lastKnownIndex})`);
             this.logger.info(
                 `   • Available accounts (dedup by email, keeping latest index): [${available.join(", ")}]`
             );
-            if (hasCurrentAccount || this.currentAuthIndex >= 0) {
+            if (hasCurrentAccount || this.lastKnownIndex >= 0) {
                 this.logger.info(`   • Starting from: #${originalStartAccount}`);
             } else {
-                this.logger.info(`   • No current account, will try all available accounts`);
+                this.logger.info(`   • No history anchor found, starting from array index 0`);
             }
             this.logger.info("==================================================");
 
@@ -171,6 +182,8 @@ class AuthSwitcher {
                         );
                     }
 
+                    // Update memory anchor upon successful switch
+                    this.lastKnownIndex = accountIndex;
                     return { failedAccounts, newIndex: accountIndex, success: true };
                 } catch (error) {
                     this.logger.error(`❌ [Auth] Account #${accountIndex} failed: ${error.message}`);
@@ -198,6 +211,9 @@ class AuthSwitcher {
                     this.logger.info(
                         `✅ [Auth] Final attempt succeeded! Switched to account #${originalStartAccount}.`
                     );
+                    
+                    // Update memory anchor
+                    this.lastKnownIndex = originalStartAccount;
                     return {
                         failedAccounts,
                         finalAttempt: true,
@@ -257,6 +273,9 @@ class AuthSwitcher {
                 this.logger.error(`[Auth] Background rebalance failed: ${err.message}`);
             });
             this.logger.info(`✅ [Auth] Successfully switched to account #${targetIndex}, counters reset.`);
+            
+            // Manually update the anchor since user forced a switch
+            this.lastKnownIndex = targetIndex;
             return { newIndex: targetIndex, success: true };
         } catch (error) {
             this.logger.error(`❌ [Auth] Switch to specified account #${targetIndex} failed: ${error.message}`);
