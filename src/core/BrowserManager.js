@@ -720,6 +720,27 @@ class BrowserManager {
             pageTitle.includes("Sign in") ||
             pageTitle.includes("登录")
         ) {
+            // Check if claw login page (Cloudflare Access or similar)
+            if (pageTitle.includes("claw") || currentUrl.includes("claw")) {
+                this.logger.warn(`${logPrefix} ⚠️ Detected claw login, waiting 15s to see if it redirects...`);
+                await page.waitForTimeout(15000);
+                
+                const newUrl = page.url();
+                const newTitle = await page.title().catch(() => "");
+                
+                if (
+                    newUrl.includes("accounts.google.com") ||
+                    newUrl.includes("ServiceLogin") ||
+                    newTitle.includes("Sign in") ||
+                    newTitle.includes("登录")
+                ) {
+                   this.logger.error(`${logPrefix} ❌ Still on login page after 15s wait.`);
+                } else {
+                   this.logger.info(`${logPrefix} ✅ Successfully redirected away from claw login.`);
+                   return; // Login succeeded
+                }
+            }
+
             // Mark auth as expired if authIndex is provided
             if (authIndex >= 0 && this.authSource) {
                 await this.authSource.markAsExpired(authIndex);
