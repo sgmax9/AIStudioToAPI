@@ -46,6 +46,11 @@ class BrowserManager {
         // currentAuthIndex is the single source of truth for current account, accessed via getter/setter
         // -1 means no account is currently active (invalid/error state)
         this._currentAuthIndex = -1;
+        
+        // Memory anchor to remember the last valid account index,
+        // so that if _currentAuthIndex is reset to -1 due to browser crash,
+        // we can still resume rotation sequence smoothly.
+        this.lastActiveAuthIndex = -1;
 
         // Flag to distinguish intentional close from unexpected disconnect
         // Used by ConnectionRegistry callback to skip unnecessary reconnect attempts
@@ -139,6 +144,9 @@ class BrowserManager {
 
     set currentAuthIndex(value) {
         this._currentAuthIndex = value;
+        if (value >= 0) {
+            this.lastActiveAuthIndex = value;
+        }
     }
 
     /**
@@ -594,6 +602,7 @@ class BrowserManager {
         this.context = ctx;
         this.page = pg;
         this._currentAuthIndex = authIndex;
+        this.lastActiveAuthIndex = authIndex;
         this.noButtonCount = 0;
         this._startHealthMonitor();
         this._startBackgroundWakeup();
@@ -2529,6 +2538,8 @@ class BrowserManager {
         if (this._currentAuthIndex === authIndex) {
             this.context = null;
             this.page = null;
+            // Remember the last active index before resetting to -1
+            this.lastActiveAuthIndex = this._currentAuthIndex;
             this._currentAuthIndex = -1;
             // DO NOT reset backgroundWakeupRunning here!
             // If a BackgroundWakeup was running, it will detect this.page === null and exit on its own.
@@ -2576,6 +2587,7 @@ class BrowserManager {
         this._wsInitState.clear();
         this.context = null;
         this.page = null;
+        // Do not reset lastActiveAuthIndex here, so it survives full cleanup
         this._currentAuthIndex = -1;
         // DO NOT reset backgroundWakeupRunning here!
         // If a BackgroundWakeup was running, it will detect this.page === null and exit on its own.
