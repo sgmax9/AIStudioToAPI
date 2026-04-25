@@ -14,6 +14,9 @@ const FormatConverter = require("./FormatConverter");
 const { isUserAbortedError } = require("../utils/CustomErrors");
 const { QueueClosedError, QueueTimeoutError } = require("../utils/MessageQueue");
 
+const WS_RECONNECT_WAIT_MS = 130000;
+const WS_CONNECTION_READY_TIMEOUT_MS = 30000; // Relaxed from 10s to 30s to allow slow VPS to establish WS
+
 // Timeout constants (in milliseconds)
 const TIMEOUTS = {
     FAKE_STREAM: 300000, // 300 seconds (5 minutes) - timeout for fake streaming (buffered response)
@@ -178,11 +181,11 @@ class RequestHandler {
         return this.authSwitcher.switchToSpecificAuth(targetIndex);
     }
 
-    async _waitForGraceReconnect(timeoutMs = 60000) {
+    async _waitForGraceReconnect(timeoutMs = WS_RECONNECT_WAIT_MS) {
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
             if (!this.connectionRegistry.isInGracePeriod() && !this.connectionRegistry.isReconnectingInProgress()) {
-                const connectionReady = await this._waitForConnection(10000);
+                const connectionReady = await this._waitForConnection(WS_CONNECTION_READY_TIMEOUT_MS);
                 return connectionReady;
             }
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -455,7 +458,7 @@ class RequestHandler {
      * @param {number} timeoutMs - Maximum time to wait in milliseconds
      * @returns {Promise<boolean>} true if connection established, false if timeout
      */
-    async _waitForConnection(timeoutMs = 10000) {
+    async _waitForConnection(timeoutMs = WS_CONNECTION_READY_TIMEOUT_MS) {
         const startTime = Date.now();
         const checkInterval = 200; // Check every 200ms
 
@@ -489,7 +492,7 @@ class RequestHandler {
      * @param {number} timeoutMs - Maximum time to wait in milliseconds
      * @returns {Promise<boolean>} true if system becomes ready, false if timeout
      */
-    async _waitForSystemReady(timeoutMs = 15000) {
+    async _waitForSystemReady(timeoutMs = 120000) {
         if (!this.authSwitcher.isSystemBusy) {
             return true;
         }
@@ -519,7 +522,7 @@ class RequestHandler {
         const {
             busyMessage = "Server undergoing internal maintenance (account switching/recovery), please try again later.",
             connectionMessage = "Service temporarily unavailable: Connection not established after switching.",
-            connectionTimeoutMs = 10000,
+            connectionTimeoutMs = WS_CONNECTION_READY_TIMEOUT_MS,
             onConnectionTimeout,
             sendError = res ? (status, message) => this._sendErrorResponse(res, status, message) : () => {},
         } = options;
@@ -620,12 +623,12 @@ class RequestHandler {
      * @returns {boolean} true if recovery successful, false otherwise
      */
     async _handleBrowserRecovery(res) {
-        // If within grace period or lightweight reconnect is running, wait up to 60s for WebSocket reconnection
+        // If within grace period or lightweight reconnect is running, wait up to 130s for WebSocket reconnection
         if (this.connectionRegistry.isInGracePeriod() || this.connectionRegistry.isReconnectingInProgress()) {
             this.logger.info(
-                "[System] Waiting up to 60s for WebSocket reconnection (grace/reconnect in progress) before full recovery..."
+                `[System] Waiting up to ${WS_RECONNECT_WAIT_MS/1000}s for WebSocket reconnection (grace/reconnect in progress) before full recovery...`
             );
-            const reconnected = await this._waitForGraceReconnect(60000);
+            const reconnected = await this._waitForGraceReconnect(WS_RECONNECT_WAIT_MS);
             if (reconnected) {
                 this.logger.info("[System] Connection restored, skipping recovery.");
                 return true;
@@ -674,7 +677,7 @@ class RequestHandler {
 
                 // Wait for WebSocket connection to be established
                 this.logger.info("[System] Waiting for WebSocket connection to be ready...");
-                const connectionReady = await this._waitForConnection(10000); // 10 seconds timeout
+                const connectionReady = await this._waitForConnection(WS_CONNECTION_READY_TIMEOUT_MS);
                 if (!connectionReady) {
                     throw new Error("WebSocket connection not established within timeout period");
                 }
@@ -692,7 +695,7 @@ class RequestHandler {
 
                     // Wait for WebSocket connection to be established
                     this.logger.info("[System] Waiting for WebSocket connection to be ready...");
-                    const connectionReady = await this._waitForConnection(10000); // 10 seconds timeout
+                    const connectionReady = await this._waitForConnection(WS_CONNECTION_READY_TIMEOUT_MS);
                     if (!connectionReady) {
                         throw new Error("WebSocket connection not established within timeout period");
                     }
@@ -725,7 +728,7 @@ class RequestHandler {
 
                         // Wait for WebSocket connection to be established
                         this.logger.info("[System] Waiting for WebSocket connection to be ready...");
-                        const connectionReady = await this._waitForConnection(10000);
+                        const connectionReady = await this._waitForConnection(WS_CONNECTION_READY_TIMEOUT_MS);
                         if (!connectionReady) {
                             throw new Error("WebSocket connection not established within timeout period");
                         }
