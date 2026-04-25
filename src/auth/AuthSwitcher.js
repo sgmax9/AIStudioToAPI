@@ -25,6 +25,10 @@ class AuthSwitcher {
     get currentAuthIndex() {
         return this.browserManager.currentAuthIndex;
     }
+    
+    get lastActiveAuthIndex() {
+        return this.browserManager.lastActiveAuthIndex;
+    }
 
     set currentAuthIndex(value) {
         this.browserManager.currentAuthIndex = value;
@@ -109,6 +113,9 @@ class AuthSwitcher {
             // Update memory anchor if we have a valid current account
             if (this.currentAuthIndex >= 0) {
                 this.lastKnownIndex = this.currentAuthIndex;
+            } else if (this.lastActiveAuthIndex >= 0) {
+                // If current is -1 but BrowserManager remembers the last active index, use it
+                this.lastKnownIndex = this.lastActiveAuthIndex;
             }
 
             // FIX: If the current account is lost/removed or reset to -1 due to catastrophic failure,
